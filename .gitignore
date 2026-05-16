@@ -179,3 +179,12 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Local database files
+backend/promptguard.db
+*.db
+*.sqlite
+*.sqlite3
+
+# macOS
+.DS_Store
