@@ -1,76 +1,67 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
-from typing import List
-from datetime import datetime
+from sqlalchemy.orm import Session
+from typing import Optional
 
-app = FastAPI(
-    title="PromptGuard QA Dashboard API",
-    description="API for testing AI prompts, tracking QA results, and logging defects.",
-    version="1.0.0",
-)
+from database import engine, SessionLocal, Base
+from models import Prompt
 
-# Temporary in-memory storage for Day 1.
-# Later, we will replace this with a real SQL database.
-prompts = []
+
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI()
 
 
 class PromptCreate(BaseModel):
     title: str
-    prompt_text: str
-    expected_behavior: str
-    category: str
+    content: str
+    expected_result: Optional[str] = None
 
 
-class Prompt(PromptCreate):
-    id: int
-    created_at: str
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 @app.get("/")
 def root():
-    return {
-        "message": "Welcome to the PromptGuard QA Dashboard API"
-    }
+    return {"message": "Welcome to the PromptGuard QA Dashboard API"}
 
 
 @app.get("/health")
 def health_check():
-    return {
-        "status": "ok",
-        "service": "PromptGuard API"
-    }
+    return {"status": "healthy"}
 
 
-@app.post("/prompts", response_model=Prompt)
-def create_prompt(prompt: PromptCreate):
-    new_prompt = {
-        "id": len(prompts) + 1,
-        "title": prompt.title,
-        "prompt_text": prompt.prompt_text,
-        "expected_behavior": prompt.expected_behavior,
-        "category": prompt.category,
-        "created_at": datetime.now().isoformat()
-    }
+@app.post("/prompts")
+def create_prompt(prompt: PromptCreate, db: Session = Depends(get_db)):
+    new_prompt = Prompt(
+        title=prompt.title,
+        content=prompt.content,
+        expected_result=prompt.expected_result
+    )
 
-    prompts.append(new_prompt)
+    db.add(new_prompt)
+    db.commit()
+    db.refresh(new_prompt)
+
     return new_prompt
 
 
-@app.get("/prompts", response_model=List[Prompt])
-def get_prompts():
+@app.get("/prompts")
+def get_prompts(db: Session = Depends(get_db)):
+    prompts = db.query(Prompt).all()
     return prompts
 
-@app.get("/prompts/{prompt_id}", response_model=Prompt)
-def get_prompt_by_id(prompt_id: int):
-    for prompt in prompts:
-        if prompt["id"] == prompt_id:
-            return prompt
 
-    return {
-        "id": 0,
-        "title": "Not Found",
-        "prompt_text": "No prompt found with that ID.",
-        "expected_behavior": "N/A",
-        "category": "Error",
-        "created_at": datetime.now().isoformat()
-    }
+@app.get("/prompts/{prompt_id}")
+def get_prompt(prompt_id: int, db: Session = Depends(get_db)):
+    prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
+
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    return prompt
